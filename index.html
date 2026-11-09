@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spike Motion Lab Plus</title>
+<style>
+:root{--bg:#091321;--panel:#111e31;--panel2:#17263d;--line:#2a3c56;--txt:#e8eff8;--muted:#9aacc3;--teal:#42d6c5;--blue:#80aaff;--amber:#ffc66d;--red:#ff7d87}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:20px clamp(14px,4vw,42px);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+h1{margin:0;font-size:22px}h1 b{color:var(--teal)}.muted{color:var(--muted)}main{max-width:1500px;margin:auto;padding:18px;display:grid;gap:15px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px;min-width:0}
+h2{font-size:16px;margin:0 0 12px}h3{font-size:13px;margin:12px 0 7px;color:#cbd8e8}
+.grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(290px,1fr);gap:15px}.row,.buttons{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+label{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+input,select,textarea{background:#0a1729;border:1px solid #354b68;color:var(--txt);border-radius:7px;padding:8px;max-width:100%}input[type=number]{width:82px}
+button{border:0;border-radius:8px;padding:9px 12px;background:var(--teal);color:#06211e;font-weight:700;cursor:pointer}button.alt{background:#263a55;border:1px solid #405a7a;color:var(--txt)}button:disabled{opacity:.42;cursor:not-allowed}
+.status{min-height:24px;color:var(--muted);font-size:12px}.good{color:var(--teal)}.warn{color:var(--amber)}.bad{color:var(--red)}
+.videoBox{position:relative;background:#030811;border-radius:9px;overflow:hidden;min-height:170px}.videoBox video{width:100%;max-height:62vh;display:block}.videoBox canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.empty{padding:60px 10px;text-align:center;color:var(--muted)}.people{display:flex;gap:7px;flex-wrap:wrap}.person{background:#243751;color:var(--txt)}.person.selected{outline:2px solid var(--teal);background:#10534d}
+.statrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stat{background:#0b192b;border:1px solid var(--line);border-radius:8px;padding:9px 11px;min-width:100px}.stat strong{display:block;color:var(--teal);font-size:18px}.stat small{color:var(--muted)}
+.notice{background:#18283e;border-left:3px solid var(--amber);padding:10px 12px;border-radius:6px;color:#cbd8e8;font-size:12px;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;white-space:nowrap}th{color:var(--muted);position:sticky;top:0;background:#132137}.scroll{overflow:auto;max-height:340px}
+canvas.chart{position:static;width:100%;height:230px;background:#0b192b;border-radius:8px}
+.pill{display:inline-block;padding:3px 7px;border-radius:20px;background:#243751;color:#cbd8e8;font-size:11px}
+.phaseList{display:flex;gap:7px;flex-wrap:wrap}.phaseItem{background:#21334d;border:1px solid #405572;border-radius:7px;padding:6px 8px;font-size:12px}
+hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+@media(max-width:900px){.grid{grid-template-columns:1fr}main{padding:10px}.panel{padding:13px}}
+</style></head>
+<body>
+<header><div><h1><b>Spike</b> Motion Lab <span class="pill">PLUS</span></h1><div class="muted">バレーボール・スパイク動作解析 / 研究補助ツール</div></div><div class="muted">動画・姿勢推定は原則ブラウザ内で処理</div></header>
+<main>
+<section class="panel">
+<h2>1. 動画・解析設定</h2>
+<div class="row">
+<label>動画 <input id="file" type="file" accept="video/*"></label>
+<label>動画FPS <input id="fps" type="number" min="1" max="240" value="30"></label>
+<label>解析間隔 <input id="stride" type="number" min="1" max="120" value="2"> フレーム</label>
+<label>信頼度下限 <input id="vis" type="number" min=".1" max="1" step=".05" value=".5"></label>
+<label>開始秒 <input id="start" type="number" min="0" value="0" step=".1"></label>
+<label>終了秒 <input id="end" type="number" min="0" value="0" step=".1"></label>
+</div>
+<div class="buttons" style="margin-top:10px">
+<button id="loadModel">AIモデルを読み込む</button><button class="alt" id="scan" disabled>現在フレームの人物を検出</button>
+<button class="alt" id="run" disabled>選択選手を解析</button><button class="alt" id="stop" disabled>停止</button>
+</div><div id="status" class="status">動画を読み込み、AIモデルを準備してください。</div>
+</section>
+
+<div class="grid">
+<section class="panel">
+<h2>2. 動画・解析対象の選択</h2>
+<div class="videoBox"><div id="empty" class="empty">動画を選択すると表示されます</div><video id="video" controls playsinline hidden></video><canvas id="overlay"></canvas></div>
+<div class="buttons" style="margin-top:8px"><button class="alt" id="prev">−1 frame</button><button class="alt" id="next">＋1 frame</button><button class="alt" id="lock" disabled>選択対象を固定</button><button class="alt" id="unlock" disabled>固定解除</button></div>
+<p id="clock" class="muted">時間・フレーム: --</p>
+<h3>検出人物候補（動画上の骨格を確認して選択）</h3><div id="people" class="people muted">未検出</div>
+<div class="notice">複数人が映る場合は、対象選手を候補から選び「選択対象を固定」してください。解析中は前フレームとの骨格配置・中心位置・身体スケールを比較します。候補の確信が低い場合や複数候補が似ている場合は、他人に切り替えず欠測として記録します。これは本人識別ではありません。</div>
+</section>
+<section class="panel">
+<h2>3. 研究条件</h2>
+<div class="row"><label>匿名選手ID <input id="athlete" placeholder="例 A01"></label><label>試技番号 <input id="trial" type="number" min="1" value="1"></label></div>
+<div class="row" style="margin-top:8px"><label>撮影方向 <select id="camera"><option>側方</option><option>正面</option><option>斜め</option><option>その他</option></select></label><label>解析対象側 <select id="side"><option value="right">右</option><option value="left">左</option><option value="both">左右</option></select></label></div>
+<label style="display:block;margin-top:9px">カメラ位置・条件<textarea id="cameraNote" rows="2" style="width:100%;margin-top:4px"></textarea></label>
+<label style="display:block;margin-top:8px">研究メモ<textarea id="memo" rows="2" style="width:100%;margin-top:4px"></textarea></label>
+<div class="statrow"><div class="stat"><strong id="count">0</strong><small>検出人数</small></div><div class="stat"><strong id="target">未選択</strong><small>対象固定</small></div><div class="stat"><strong id="nrows">0</strong><small>計測フレーム</small></div><div class="stat"><strong id="missing">0</strong><small>追跡欠測</small></div></div>
+</section></div>
+
+<section class="panel">
+<h2>4. 動作局面のマーキング（手動）</h2>
+<div class="row"><label>局面 <select id="phase"><option>助走</option><option>踏切</option><option>空中・コッキング</option><option>加速・インパクト</option><option>フォロースルー</option><option>着地</option></select></label><button id="mark" class="alt">現在時刻を局面として記録</button><button id="clearPhases" class="alt">局面を消去</button></div>
+<div id="phaseList" class="phaseList" style="margin-top:10px"><span class="muted">まだ局面はありません</span></div>
+<div class="muted" style="font-size:12px;margin-top:7px">局面は自動判定ではありません。動画を確認して研究者が時刻を指定してください。</div>
+</section>
+
+<section class="panel">
+<h2>5. 関節角度の時系列</h2>
+<div class="row"><label>表示項目 <select id="chartKey"><option value="right_elbow_2d">右肘 2D</option><option value="right_shoulder_2d">右肩 2D</option><option value="right_hip_2d">右股関節 2D</option><option value="right_knee_2d">右膝 2D</option><option value="left_elbow_2d">左肘 2D</option><option value="left_shoulder_2d">左肩 2D</option><option value="left_hip_2d">左股関節 2D</option><option value="left_knee_2d">左膝 2D</option></select></label><span class="muted">局面マーカー付き</span></div>
+<canvas id="chart" class="chart" width="1200" height="230"></canvas>
+</section>
+
+<section class="panel">
+<h2>6. 局面ごとの角度要約</h2>
+<div class="scroll"><table><thead><tr><th>局面</th><th>時刻</th><th>右肘平均</th><th>右肩平均</th><th>右股関節平均</th><th>右膝平均</th><th>データ数</th></tr></thead><tbody id="phaseSummary"><tr><td colspan="7" class="muted">局面と計測データが必要です</td></tr></tbody></table></div>
+</section>
+
+<section class="panel">
+<h2>7. フレーム別データ・エクスポート</h2>
+<div class="buttons"><button id="csv">全フレームCSV</button><button class="alt" id="json">解析JSON</button><label>JSON読込 <input id="import" type="file" accept=".json,application/json"></label><button class="alt" id="saveLocal">この端末に保存</button><button class="alt" id="loadLocal">端末保存を読込</button><button class="alt" id="clearData">計測データ消去</button></div>
+<div class="scroll" style="margin-top:9px"><table><thead><tr><th>Frame</th><th>秒</th><th>対象</th><th>追跡スコア</th><th>右肘</th><th>右肩</th><th>右股関節</th><th>右膝</th><th>左肘</th><th>左肩</th><th>左股関節</th><th>左膝</th></tr></thead><tbody id="rows"><tr><td colspan="12" class="muted">データはありません</td></tr></tbody></table></div>
+</section>
+
+<section class="panel">
+<h2>研究上の限界・プライバシー</h2>
+<ul class="muted">
+<li>動画自体はブラウザ内で処理し、アプリのサーバーにはアップロードしません。MediaPipeのライブラリとAIモデルは外部CDNから取得します。</li>
+<li>Pose Landmarkerの人物候補番号は本人識別IDではありません。交差・遮蔽・画面外への移動で追跡を誤る可能性があり、誤追跡を完全には防げません。</li>
+<li>2D角度は画像平面への投影角度です。3D関節角度とは異なります。world landmarkの3D角度は参考値として別列に保存します。</li>
+<li>低信頼度の点や追跡不確実区間は欠測として扱います。研究データとして確定する前に、動画・骨格オーバーレイ・測定値を目視で確認してください。</li>
+<li>カメラの向き、フレームレート、解像度、遮蔽、衣服、照明が結果に影響します。本ツールは研究補助用であり、妥当性・再現性の検証が必要です。</li>
+</ul>
+</section>
+</main>
+<script type="module">
+import {PoseLandmarker,FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const $=id=>document.getElementById(id),video=$("video"),canvas=$("overlay"),ctx=canvas.getContext("2d");
+let model=null,poses=[],selectedIndex=null,locked=false,anchor=null,records=[],phases=[],running=false,objectUrl=null,videoToken=0;
+const edges=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,29],[27,31],[28,30],[28,32],[0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10]];
+function msg(s,c=""){$("status").textContent=s;$("status").className="status "+c}
+function center(l){let ids=[11,12,23,24].filter(i=>l[i]&&l[i].visibility>.2);return ids.length?{x:ids.reduce((a,i)=>a+l[i].x,0)/ids.length,y:ids.reduce((a,i)=>a+l[i].y,0)/ids.length}:null}
+function bodyScale(l){let a=l[11],b=l[12],c=l[23],d=l[24];return Math.max(.015,Math.hypot((a?.x||0)-(b?.x||0),(a?.y||0)-(b?.y||0))+Math.hypot((c?.x||0)-(d?.x||0),(c?.y||0)-(d?.y||0)))}
+function similarity(a,b){let x=center(a),y=center(b);if(!x||!y)return 0;let dist=Math.hypot(x.x-y.x,x.y-y.y),scaleDiff=Math.abs(Math.log(bodyScale(a)/bodyScale(b)));let common=[11,12,13,14,15,16,23,24,25,26,27,28],sum=0,n=0;for(let i of common){if(a[i]?.visibility>.25&&b[i]?.visibility>.25){sum+=Math.hypot(a[i].x-b[i].x,a[i].y-b[i].y);n++}}let joint=n?sum/n:.25;return Math.max(0,1-dist*3.5-scaleDiff*.45-joint*1.8)}
+function fit(){if(!video.videoWidth)return;let r=video.getBoundingClientRect();canvas.width=Math.max(1,Math.round(r.width*devicePixelRatio));canvas.height=Math.max(1,Math.round(r.height*devicePixelRatio));draw()}
+function draw(){if(!video.videoWidth)return;let r=video.getBoundingClientRect();if(canvas.width!==Math.round(r.width*devicePixelRatio)||canvas.height!==Math.round(r.height*devicePixelRatio)){canvas.width=Math.round(r.width*devicePixelRatio);canvas.height=Math.round(r.height*devicePixelRatio)}ctx.clearRect(0,0,canvas.width,canvas.height);let sx=canvas.width/video.videoWidth,sy=canvas.height/video.videoHeight;
+poses.forEach((lm,i)=>{let active=i===selectedIndex;ctx.strokeStyle=active?"#42d6c5":`hsl(${i*77+35} 80% 66%)`;ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=(active?4:2)*devicePixelRatio;edges.forEach(([a,b])=>{if(!lm[a]||!lm[b]||(lm[a].visibility??1)<.18||(lm[b].visibility??1)<.18)return;ctx.beginPath();ctx.moveTo(lm[a].x*video.videoWidth*sx,lm[a].y*video.videoHeight*sy);ctx.lineTo(lm[b].x*video.videoWidth*sx,lm[b].y*video.videoHeight*sy);ctx.stroke()});lm.forEach(p=>{if((p.visibility??1)<.2)return;ctx.beginPath();ctx.arc(p.x*video.videoWidth*sx,p.y*video.videoHeight*sy,(active?4:2.5)*devicePixelRatio,0,Math.PI*2);ctx.fill()});let c=center(lm);if(c){ctx.font=`bold ${15*devicePixelRatio}px system-ui`;ctx.fillText(`候補 ${i+1}${active?" ✓":""}`,c.x*video.videoWidth*sx,c.y*video.videoHeight*sy-12*devicePixelRatio)}})}
+function renderPeople(){$("count").textContent=poses.length;$("people").innerHTML="";if(!poses.length){$("people").textContent="このフレームでは人物を検出できません";return}poses.forEach((p,i)=>{let b=document.createElement("button");b.className="person"+(i===selectedIndex?" selected":"");b.textContent=`候補 ${i+1}${i===selectedIndex?"（選択）":""}`;b.onclick=()=>{if(locked){msg("固定を解除してから対象を変更してください。","warn");return}selectedIndex=i;anchor=poses[i];renderPeople();draw();$("target").textContent="未固定";$("lock").disabled=false};$("people").append(b)})}
+function normalizePose(p){return p.map(x=>({...x,visibility:x.visibility??x.presence??1}))}
+async function detectFrame(){if(!model||!video.videoWidth)return;let r=model.detectForVideo(video,performance.now());poses=(r.landmarks||[]).map(normalizePose);renderPeople();draw();$("clock").textContent=`${video.currentTime.toFixed(3)}秒 / 約${Math.round(video.currentTime*(+$("fps").value||30))} frame`;if(poses.length===1&&!locked){selectedIndex=0;anchor=poses[0];renderPeople();draw()}}
+$("file").onchange=e=>{let f=e.target.files[0];if(!f)return;if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);video.src=objectUrl;video.hidden=false;$("empty").hidden=true;video.onloadedmetadata=()=>{$("end").value=video.duration.toFixed(2);fit();msg(`動画を読み込みました: ${video.videoWidth}×${video.videoHeight} / ${video.duration.toFixed(2)}秒`,"good");$("scan").disabled=!model;$("run").disabled=!model}};
+$("loadModel").onclick=async()=>{try{msg("姿勢推定モデルを読み込み中…");let fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");try{model=await PoseLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",delegate:"GPU"},runningMode:"VIDEO",numPoses:5,minPoseDetectionConfidence:.45,minPosePresenceConfidence:.45,minTrackingConfidence:.45})}catch(e){msg("GPUで起動できないためCPUで再試行中…","warn");model=await PoseLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",delegate:"CPU"},runningMode:"VIDEO",numPoses:5,minPoseDetectionConfidence:.45,minPosePresenceConfidence:.45,minTrackingConfidence:.45})}msg("AIモデル準備完了。人物を検出してください。","good");$("scan").disabled=false;$("run").disabled=false}catch(e){console.error(e);msg("モデル読込に失敗しました。ネット接続・ブラウザを確認してください。","bad")}};
+$("scan").onclick=detectFrame;video.addEventListener("seeked",()=>{if(model&&!running)detectFrame()});video.addEventListener("loadedmetadata",fit);window.addEventListener("resize",fit);
+$("prev").onclick=()=>{video.pause();video.currentTime=Math.max(0,video.currentTime-1/(+$("fps").value||30))};$("next").onclick=()=>{video.pause();video.currentTime=Math.min(video.duration,video.currentTime+1/(+$("fps").value||30))};
+$("lock").onclick=()=>{if(selectedIndex===null||!poses[selectedIndex]){msg("先に候補を選択してください。","warn");return}locked=true;anchor=poses[selectedIndex];$("target").textContent=`固定: 候補${selectedIndex+1}`;$("lock").disabled=true;$("unlock").disabled=false;msg("解析対象を固定しました。解析を開始できます。","good")};
+$("unlock").onclick=()=>{locked=false;anchor=null;selectedIndex=null;$("target").textContent="未固定";$("lock").disabled=true;$("unlock").disabled=true;renderPeople();draw();msg("対象固定を解除しました。再選択してください。","warn")};
+function angle2(a,b,c){if(!a||!b||!c)return null;let x=[a.x-b.x,a.y-b.y],y=[c.x-b.x,c.y-b.y],n=Math.hypot(...x)*Math.hypot(...y);return n?Math.acos(Math.max(-1,Math.min(1,(x[0]*y[0]+x[1]*y[1])/n)))*180/Math.PI:null}
+function angle3(a,b,c){if(!a||!b||!c)return null;let x=[a.x-b.x,a.y-b.y,a.z-b.z],y=[c.x-b.x,c.y-b.y,c.z-b.z],dot=x.reduce((s,v,i)=>s+v*y[i],0),n=Math.hypot(...x)*Math.hypot(...y);return n?Math.acos(Math.max(-1,Math.min(1,dot/n)))*180/Math.PI:null}
+function anglesFor(l,world,side){let L=side==="left",s=L?11:12,e=L?13:14,w=L?15:16,h=L?23:24,k=L?25:26,a=L?27:28,thr=+$("vis").value||.5,p=i=>l[i]&&(l[i].visibility??1)>=thr?l[i]:null,q=i=>world&&world[i]?world[i]:null;return{[side+"_elbow_2d"]:angle2(p(s),p(e),p(w)),[side+"_shoulder_2d"]:angle2(p(e),p(s),p(h)),[side+"_hip_2d"]:angle2(p(s),p(h),p(k)),[side+"_knee_2d"]:angle2(p(h),p(k),p(a)),[side+"_elbow_3d"]:angle3(q(s),q(e),q(w)),[side+"_shoulder_3d"]:angle3(q(e),q(s),q(h)),[side+"_hip_3d"]:angle3(q(s),q(h),q(k)),[side+"_knee_3d"]:angle3(q(h),q(k),q(a))}}
+function makeRecord(frame,time,l,world,conf){let out={frame,time,athlete:$("athlete").value,trial:$("trial").value,target_person_id:"locked_track_1",tracking_confidence:conf,phase:phaseAt(time)};Object.assign(out,anglesFor(l,world,"right"),anglesFor(l,world,"left"));for(let i=0;i<33;i++){out[`lm${i}_x`]=l[i]?.x??null;out[`lm${i}_y`]=l[i]?.y??null;out[`lm${i}_visibility`]=l[i]?.visibility??null}return out}
+function phaseAt(t){let p=[...phases].filter(x=>x.time<=t).sort((a,b)=>a.time-b.time);return p.length?p[p.length-1].name:"未設定"}
+function addMissing(frame,time,conf=0){let r=makeRecord(frame,time,[],null,conf);records.push(r)}
+function renderRows(){$("nrows").textContent=records.length;$("missing").textContent=records.filter(r=>r.tracking_confidence===0).length;let keys=["right_elbow_2d","right_shoulder_2d","right_hip_2d","right_knee_2d","left_elbow_2d","left_shoulder_2d","left_hip_2d","left_knee_2d"];$("rows").innerHTML=records.slice(-400).reverse().map(r=>`<tr><td>${r.frame}</td><td>${r.time.toFixed(3)}</td><td>${r.target_person_id}</td><td>${r.tracking_confidence.toFixed(2)}</td>${keys.map(k=>`<td>${fmt(r[k])}</td>`).join("")}</tr>`).join("")||'<tr><td colspan="12" class="muted">計測データはありません</td></tr>';renderSummary();drawChart()}
+function fmt(v){return Number.isFinite(v)?v.toFixed(1):"欠測"}
+$("run").onclick=async()=>{if(!locked||!anchor){msg("解析前に人物候補を選び、対象を固定してください。","warn");return}if(!model||!video.videoWidth)return;running=true;video.pause();$("stop").disabled=false;$("run").disabled=true;let fps=+$("fps").value||30,stride=Math.max(1,+$("stride").value||2),start=Math.max(0,+$("start").value||0),end=Math.min(video.duration,+$("end").value||video.duration),count=Math.ceil((end-start)*fps/stride),prevPose=anchor,token=++videoToken,miss=0;
+try{for(let n=0;n<count&&running&&token===videoToken;n++){let t=Math.min(end,start+n*stride/fps);await seekTo(t);if(!running)break;let result=model.detectForVideo(video,performance.now()),candidates=(result.landmarks||[]).map(normalizePose);let scored=candidates.map((p,i)=>({p,i,s:similarity(prevPose,p)})).sort((a,b)=>b.s-a.s);let chosen=scored[0],second=scored[1];let safe=chosen&&chosen.s>=.48&&(!second||chosen.s-second.s>=.08);
+if(!safe){addMissing(Math.round(t*fps),t);miss++;msg(`対象を見失いました (${n+1}/${count})。候補の曖昧さがあるため欠測にしています。`,"warn")}else{prevPose=chosen.p;anchor=chosen.p;selectedIndex=chosen.i;poses=candidates;miss=0;let world=result.worldLandmarks?.[chosen.i]||null;records.push(makeRecord(Math.round(t*fps),t,chosen.p,world,chosen.s));draw();renderPeople();msg(`解析中 ${n+1}/${count} · 追跡スコア ${chosen.s.toFixed(2)}`)}
+renderRows();await new Promise(r=>setTimeout(r,0))}
+msg(running?"解析が完了しました。動画と骨格を照合してください。":"解析を停止しました。",running?"good":"warn")
+}catch(e){console.error(e);msg("解析中にエラーが発生しました。","bad")}finally{running=false;$("stop").disabled=true;$("run").disabled=false}};
+function seekTo(t){return new Promise(resolve=>{if(Math.abs(video.currentTime-t)<.0005){resolve();return}let done=()=>{video.removeEventListener("seeked",done);resolve()};video.addEventListener("seeked",done);video.currentTime=t})}
+$("stop").onclick=()=>{running=false;videoToken++};
+$("mark").onclick=()=>{let t=video.currentTime,name=$("phase").value;phases.push({name,time:t});phases.sort((a,b)=>a.time-b.time);renderPhases();renderRows();msg(`${name}を${t.toFixed(3)}秒に記録しました。`,"good")};
+$("clearPhases").onclick=()=>{phases=[];renderPhases();renderRows()};
+function renderPhases(){$("phaseList").innerHTML=phases.map((p,i)=>`<span class="phaseItem">${p.name} · ${p.time.toFixed(2)}秒 <button class="alt" data-del="${i}" style="padding:2px 6px">×</button></span>`).join("")||'<span class="muted">局面マーカーはありません</span>';$("phaseList").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{phases.splice(+b.dataset.del,1);renderPhases();renderRows()})}
+function renderSummary(){let names=[...new Set(phases.map(p=>p.name))],keys=["right_elbow_2d","right_shoulder_2d","right_hip_2d","right_knee_2d"];$("phaseSummary").innerHTML=names.map(name=>{let marker=phases.find(p=>p.name===name),next=phases.filter(p=>p.time>marker.time).sort((a,b)=>a.time-b.time)[0],rs=records.filter(r=>r.time>=marker.time&&(!next||r.time<next.time)&&r.tracking_confidence>0),means=keys.map(k=>{let a=rs.map(r=>r[k]).filter(Number.isFinite);return a.length?(a.reduce((s,x)=>s+x,0)/a.length).toFixed(1)+"°":"欠測"});return `<tr><td>${name}</td><td>${marker.time.toFixed(2)}</td>${means.map(x=>`<td>${x}</td>`).join("")}<td>${rs.length}</td></tr>`}).join("")||'<tr><td colspan="7" class="muted">局面マーカーはありません</td></tr>'}
+function drawChart(){let c=$("chart"),g=c.getContext("2d"),w=c.width,h=c.height,key=$("chartKey").value;g.clearRect(0,0,w,h);g.strokeStyle="#293e58";g.lineWidth=1;for(let i=0;i<5;i++){let y=18+i*(h-36)/4;g.beginPath();g.moveTo(45,y);g.lineTo(w-12,y);g.stroke()}let vals=records.filter(r=>Number.isFinite(r[key])&&r.tracking_confidence>0);if(vals.length<2){g.fillStyle="#9aacc3";g.fillText("計測データがありません",55,38);return}let min=Math.min(...vals.map(r=>r[key])),max=Math.max(...vals.map(r=>r[key])),span=Math.max(1,max-min),t0=records[0].time,t1=records[records.length-1].time||t0+1;phases.forEach(p=>{let x=45+(p.time-t0)/(t1-t0||1)*(w-58);g.strokeStyle="#ffc66d";g.setLineDash([5,4]);g.beginPath();g.moveTo(x,10);g.lineTo(x,h-20);g.stroke();g.setLineDash([]);g.fillStyle="#ffc66d";g.fillText(p.name,x+3,14)});g.strokeStyle="#42d6c5";g.lineWidth=2.5;g.beginPath();vals.forEach((r,i)=>{let x=45+(r.time-t0)/(t1-t0||1)*(w-58),y=h-20-(r[key]-min)/span*(h-42);if(i&&vals[i-1].time===r.time)g.moveTo(x,y);else if(i===0)g.moveTo(x,y);else g.lineTo(x,y)});g.stroke();g.fillStyle="#9aacc3";g.fillText(`${max.toFixed(0)}°`,4,22);g.fillText(`${min.toFixed(0)}°`,4,h-12)}
+$("chartKey").onchange=drawChart;
+const meta=()=>({athlete:$("athlete").value,trial:$("trial").value,camera:$("camera").value,cameraNote:$("cameraNote").value,memo:$("memo").value,fps:+$("fps").value,phases,records,formatVersion:2});
+function download(name,data,type){let u=URL.createObjectURL(new Blob([data],{type})),a=document.createElement("a");a.href=u;a.download=name;a.click();URL.revokeObjectURL(u)}
+$("json").onclick=()=>download("spike-motion-session.json",JSON.stringify(meta(),null,2),"application/json");
+$("csv").onclick=()=>{if(!records.length)return msg("書き出す計測データがありません。","warn");let keys=Object.keys(records[0]),csv=[keys.join(","),...records.map(r=>keys.map(k=>{let v=r[k];return v==null?"":String(v).replaceAll('"','""')}).map(v=>/[,"\r\n]/.test(v)?`"${v}"`:v).join(","))];download("spike-motion-frames.csv","\ufeff"+csv.join("\r\n"),"text/csv;charset=utf-8")};
+$("import").onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());records=d.records||[];phases=d.phases||[];for(let k of ["athlete","trial","camera","cameraNote","memo","fps"])if(d[k]!=null&&$(k))$(k).value=d[k];renderPhases();renderRows();msg("JSONを読み込みました。","good")}catch(err){msg("JSONの読み込みに失敗しました。","bad")}};
+$("saveLocal").onclick=()=>{localStorage.setItem("spikeMotionLabPlus",JSON.stringify(meta()));msg("この端末のブラウザに保存しました。","good")};
+$("loadLocal").onclick=()=>{try{let d=JSON.parse(localStorage.getItem("spikeMotionLabPlus")||"null");if(!d)throw 0;records=d.records||[];phases=d.phases||[];renderPhases();renderRows();msg("端末保存データを読み込みました。","good")}catch(e){msg("保存データが見つかりません。","warn")}};
+$("clearData").onclick=()=>{if(confirm("計測データと局面マーカーを消去しますか？")){records=[];phases=[];renderPhases();renderRows()}};
+renderRows();renderPhases();drawChart();
+</script></body></html>
